@@ -34,6 +34,9 @@ export class TinnyEnvironment {
     NETWORK:
       (process.env['NETWORK'] as LIT_NETWORK_VALUES) || LIT_NETWORK.Custom,
     DEBUG: process.env['DEBUG'] === 'true',
+    LOG_FORMAT:
+      (process.env['LOG_FORMAT'] as 'text' | 'json' | 'datadog') || 'json',
+    SERVICE_NAME: process.env['SERVICE_NAME'] || 'tinny-tests',
     REQUEST_PER_KILOSECOND:
       parseInt(process.env['REQUEST_PER_KILOSECOND']) ||
       (process.env['NETWORK'] as LIT_NETWORK_VALUES) === 'datil-dev'
@@ -143,7 +146,12 @@ export class TinnyEnvironment {
 
     console.log(
       '[𐬺🧪 Tinny Environment𐬺] Done configuring environment current config: ',
-      this.processEnvs
+      {
+        ...this.processEnvs,
+        PRIVATE_KEYS: this.processEnvs.PRIVATE_KEYS.map(
+          (_, index) => `[PRIVATE_KEY_${index}]`
+        ),
+      }
     );
   }
 
@@ -242,18 +250,24 @@ export class TinnyEnvironment {
         debug: this.processEnvs.DEBUG,
         checkNodeAttestation: false, // disable node attestation check for local testing
         contractContext: networkContext,
+        logFormat: this.processEnvs.LOG_FORMAT,
+        serviceName: this.processEnvs.SERVICE_NAME,
       });
     } else if (centralisation === 'decentralised') {
       this.litNodeClient = new LitNodeClient({
         litNetwork: this.network,
         checkNodeAttestation: true,
         debug: this.processEnvs.DEBUG,
+        logFormat: this.processEnvs.LOG_FORMAT,
+        serviceName: this.processEnvs.SERVICE_NAME,
       });
     } else if (centralisation === 'centralised') {
       this.litNodeClient = new LitNodeClient({
         litNetwork: this.network,
         checkNodeAttestation: false,
         debug: this.processEnvs.DEBUG,
+        logFormat: this.processEnvs.LOG_FORMAT,
+        serviceName: this.processEnvs.SERVICE_NAME,
       });
     } else {
       throw new Error(`Network not supported: "${this.network}"`);
@@ -276,6 +290,12 @@ export class TinnyEnvironment {
         'WASM modules already loaded. wil override. when connect is called'
       );
     }
+
+    this.litNodeClient.on('connected', () => {
+      console.log(
+        'Received `connected` event from `litNodeClient. Ready to go!'
+      );
+    });
 
     await this.litNodeClient.connect();
 
@@ -396,7 +416,10 @@ export class TinnyEnvironment {
   async setupBareEthAuthSig() {
     const privateKey = await this.getAvailablePrivateKey();
     try {
-      const provider = new ethers.providers.JsonRpcBatchProvider(this.rpc);
+      const provider = new ethers.providers.StaticJsonRpcProvider({
+        url: this.rpc,
+        skipFetchSetup: true,
+      });
       const wallet = new ethers.Wallet(privateKey.privateKey, provider);
 
       const toSign = await createSiweMessage({
@@ -444,7 +467,10 @@ export class TinnyEnvironment {
     const privateKey = await this.getAvailablePrivateKey();
 
     try {
-      const provider = new ethers.providers.JsonRpcBatchProvider(this.rpc);
+      const provider = new ethers.providers.StaticJsonRpcProvider({
+        url: this.rpc,
+        skipFetchSetup: true,
+      });
       const wallet = new ethers.Wallet(privateKey.privateKey, provider);
 
       const tx = await wallet.sendTransaction({
@@ -467,7 +493,10 @@ export class TinnyEnvironment {
    */
   setupSuperCapacityDelegationAuthSig = async () => {
     const privateKey = await this.getAvailablePrivateKey();
-    const provider = new ethers.providers.JsonRpcBatchProvider(this.rpc);
+    const provider = new ethers.providers.StaticJsonRpcProvider({
+      url: this.rpc,
+      skipFetchSetup: true,
+    });
     const wallet = new ethers.Wallet(privateKey.privateKey, provider);
 
     /**
@@ -492,6 +521,7 @@ export class TinnyEnvironment {
       this.contractsClient = new LitContracts({
         signer: wallet,
         debug: this.processEnvs.DEBUG,
+        rpc: this.rpc,
         network: this.network,
       });
     }
